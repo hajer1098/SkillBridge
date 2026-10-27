@@ -1,0 +1,6 @@
+# Install Caddy on the VPS and replace the domain with your actual DNS name.
+# Point that domain's DNS at the VPS and allow inbound TCP 80/443.
+learn.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8088
+}

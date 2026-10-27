@@ -1,0 +1,12 @@
+{
+  "name": "skillbridge-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/start-api.mjs",
+    "api": "node scripts/start-api.mjs",
+    "test": "node --test --test-concurrency=1 tests/api-journeys.test.mjs tests/access-admin.test.mjs",
+    "seed:check": "node scripts/validate-seed.mjs"
+  }
+}

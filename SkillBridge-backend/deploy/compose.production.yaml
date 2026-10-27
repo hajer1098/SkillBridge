@@ -1,0 +1,75 @@
+name: skillbridge-production
+
+services:
+  database:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DOCKER_DATABASE_NAME:-skillbridge}
+      POSTGRES_USER: ${DOCKER_DATABASE_USER:-skillbridge}
+      POSTGRES_PASSWORD: ${DOCKER_DATABASE_PASSWORD:?Set a production database password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  backend:
+    image: ${BACKEND_IMAGE:?The release images.env must define BACKEND_IMAGE}
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      DATABASE_URL: jdbc:postgresql://database:5432/${DOCKER_DATABASE_NAME:-skillbridge}
+      DATABASE_USER: ${DOCKER_DATABASE_USER:-skillbridge}
+      DATABASE_PASSWORD: ${DOCKER_DATABASE_PASSWORD:?Set a production database password}
+      DEMO_SEED: "false"
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-SkillBridge Admin}
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_TLS: ${SMTP_TLS:-true}
+      MAIL_FROM: ${MAIL_FROM:-hello@example.com}
+      CORS_ORIGINS: ${PUBLIC_ORIGIN:?Set the HTTPS website origin}
+      AI_URL: ${AI_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError
+    depends_on:
+      database:
+        condition: service_healthy
+    networks: [app, data]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?The release images.env must define FRONTEND_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8088}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [app]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  app:
+  data:
+    internal: true
+
+volumes:
+  postgres_data:

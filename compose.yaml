@@ -1,31 +1,91 @@
+name: skillbridge
+
 services:
   database:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: skillbridge
-      POSTGRES_USER: skillbridge
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-skillbridge_dev}
-    ports: ["127.0.0.1:5432:5432"]
-    volumes: ["postgres_data:/var/lib/postgresql/data"]
+      POSTGRES_DB: ${DOCKER_DATABASE_NAME:-skillbridge-db}
+      POSTGRES_USER: ${DOCKER_DATABASE_USER:-skillbridge}
+      POSTGRES_PASSWORD: ${DOCKER_DATABASE_PASSWORD:?Set DOCKER_DATABASE_PASSWORD in .env.docker}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U skillbridge"]
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 5s
-      retries: 10
-  mail:
-    image: axllent/mailpit:v1.22
-    ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
-  api:
-    build: ./backend
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  backend:
+    image: ${REGISTRY_PREFIX:-skillbridge}/backend:${IMAGE_TAG:-local}
+    build:
+      context: ./SkillBridge-backend
+      dockerfile: ${DOCKER_BUILD_FILE:-Dockerfile}
+    restart: unless-stopped
     environment:
-      DATABASE_URL: jdbc:postgresql://database:5432/skillbridge
-      DATABASE_USER: skillbridge
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-skillbridge_dev}
-      DEMO_SEED: "true"
-      MAIL_ENABLED: "true"
-      SMTP_HOST: mail
-    ports: ["127.0.0.1:8080:8080"]
+      PORT: "8080"
+      DATABASE_URL: jdbc:postgresql://database:5432/${DOCKER_DATABASE_NAME:-skillbridge-db}
+      DATABASE_USER: ${DOCKER_DATABASE_USER:-skillbridge}
+      DATABASE_PASSWORD: ${DOCKER_DATABASE_PASSWORD:?Set DOCKER_DATABASE_PASSWORD in .env.docker}
+      DEMO_SEED: ${DEMO_SEED:-true}
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-false}
+      SMTP_TLS: ${SMTP_TLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-hello@skillbridge.local}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8088,http://127.0.0.1:8088}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError
     depends_on:
       database:
         condition: service_healthy
+    networks: [app, data]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  frontend:
+    image: ${REGISTRY_PREFIX:-skillbridge}/frontend:${IMAGE_TAG:-local}
+    build:
+      context: ./SkillBridge-frontend
+      dockerfile: ${DOCKER_BUILD_FILE:-Dockerfile}
+      args:
+        VITE_API_URL: /api
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-8088}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [app]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  tests:
+    image: node:22-alpine
+    profiles: [test]
+    working_dir: /tests
+    environment:
+      TEST_API_URL: http://backend:8080/api
+    volumes:
+      - ./SkillBridge-backend/tests:/tests:ro
+    command: [node, --test, --test-concurrency=1, api-journeys.test.mjs, access-admin.test.mjs]
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [app]
+
+networks:
+  app:
+  data:
+    internal: true
+
 volumes:
   postgres_data:
