@@ -4,7 +4,7 @@ set -Eeuo pipefail
 : "${VPS_USER:?}"
 : "${VPS_PORT:=2244}"
 : "${VPS_DIRECTORY:=/home/hajer/skillbridge}"
-: "${KNOWN_HOSTS_FILE:?Jenkins secret file containing the verified VPS host key}"
+: "${KNOWN_HOSTS_FILE:?Path to the verified VPS SSH known_hosts file}"
 : "${SSH_KEY_FILE:?Jenkins SSH private-key credential file}"
 : "${IMAGE_TAG:?}"
 [[ $VPS_HOST =~ ^[a-zA-Z0-9.-]+$ && $VPS_HOST != -* ]] || { echo 'Use a DNS hostname or IPv4 address.' >&2; exit 2; }

@@ -39,8 +39,8 @@ pipeline {
             when { expression { params.DEPLOY_TO_VPS && !env.CHANGE_ID && env.SOURCE_BRANCH == params.DEPLOY_BRANCH } }
             steps {
                 sh 'bash SkillBridge-backend/scripts/package-images.sh'
-                withEnv(["VPS_HOST=${params.VPS_HOST}", "VPS_USER=${params.VPS_USER}", "VPS_PORT=${params.VPS_PORT}", "VPS_DIRECTORY=${params.VPS_DIRECTORY}"]) {
-                    withCredentials([file(credentialsId: 'vps-known-hosts', variable: 'KNOWN_HOSTS_FILE'), sshUserPrivateKey(credentialsId: 'vps-ssh-key', keyFileVariable: 'SSH_KEY_FILE')]) {
+                withEnv(["VPS_HOST=${params.VPS_HOST}", "VPS_USER=${params.VPS_USER}", "VPS_PORT=${params.VPS_PORT}", "VPS_DIRECTORY=${params.VPS_DIRECTORY}", "KNOWN_HOSTS_FILE=${env.WORKSPACE}/SkillBridge-backend/deploy/vps-known-hosts"]) {
+                    withCredentials([sshUserPrivateKey(credentialsId: 'vps-ssh-key', keyFileVariable: 'SSH_KEY_FILE')]) {
                         sh 'bash SkillBridge-backend/scripts/send-release.sh upload'
                     }
                 }
@@ -50,8 +50,8 @@ pipeline {
         stage('Deploy with Compose') {
             when { expression { params.DEPLOY_TO_VPS && !env.CHANGE_ID && env.SOURCE_BRANCH == params.DEPLOY_BRANCH } }
             steps {
-                withEnv(["VPS_HOST=${params.VPS_HOST}", "VPS_USER=${params.VPS_USER}", "VPS_PORT=${params.VPS_PORT}", "VPS_DIRECTORY=${params.VPS_DIRECTORY}"]) {
-                    withCredentials([file(credentialsId: 'vps-known-hosts', variable: 'KNOWN_HOSTS_FILE'), sshUserPrivateKey(credentialsId: 'vps-ssh-key', keyFileVariable: 'SSH_KEY_FILE')]) {
+                withEnv(["VPS_HOST=${params.VPS_HOST}", "VPS_USER=${params.VPS_USER}", "VPS_PORT=${params.VPS_PORT}", "VPS_DIRECTORY=${params.VPS_DIRECTORY}", "KNOWN_HOSTS_FILE=${env.WORKSPACE}/SkillBridge-backend/deploy/vps-known-hosts"]) {
+                    withCredentials([sshUserPrivateKey(credentialsId: 'vps-ssh-key', keyFileVariable: 'SSH_KEY_FILE')]) {
                         sh 'bash SkillBridge-backend/scripts/send-release.sh deploy'
                     }
                 }

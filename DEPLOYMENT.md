@@ -81,16 +81,15 @@ Transfer and deployment are enabled only when `DEPLOY_TO_VPS=true`, the branch m
 
 The `test` command builds the two targets in `SkillBridge-backend/Dockerfile.tests` before running them. Test sources are copied into these images, with a dedicated ignore file that excludes local secrets and build artifacts. The test containers do not bind-mount the workspace: when Jenkins itself runs in Docker and uses the host Docker socket, its workspace path can differ from the path on the Docker host. Only the frontend and backend images are transferred; the test images stay on the build agent.
 
-Create these Jenkins credentials:
+Create this Jenkins credential:
 
 | Credential ID | Kind | Purpose |
 | --- | --- | --- |
 | `vps-ssh-key` | SSH username with private key | SSH key authorized for your VPS deployment user. |
-| `vps-known-hosts` | Secret file | The VPS host public key verified through the VPS provider or console, in OpenSSH known_hosts format. |
 
-Scope both SSH credentials to SkillBridge. Use username `hajer` and the dedicated unencrypted deployment key for `vps-ssh-key`, and the verified entry for `[51.210.107.84]:2244` in `vps-known-hosts`. Keys and production secrets are never archived. A credential used by GitHub Branch Source to scan the code repository is separate and may remain configured.
+Scope `vps-ssh-key` to SkillBridge, using username `hajer` and the dedicated unencrypted deployment private key. The server's public host key is pinned in `SkillBridge-backend/deploy/vps-known-hosts`, which is safe to commit. Its verified ED25519 fingerprint is `SHA256:k67MBskOE5AmADFmL0JedcvvRs9qIdJOqwcpLOIkIxM`. Jenkins passes this file to OpenSSH with strict host-key verification. No `vps-known-hosts` Jenkins credential is needed; an existing entry with that ID is unused. Verify a replacement host key independently before editing this file if the VPS is rebuilt or the address/port changes. Private keys and production secrets are never archived. A credential used by GitHub Branch Source to scan the code repository is separate and may remain configured.
 
-Parameters default to `DEPLOY_BRANCH=main`, `VPS_HOST=51.210.107.84`, `VPS_USER=hajer`, `VPS_PORT=2244`, and `VPS_DIRECTORY=/home/hajer/skillbridge`. Keep `DEPLOY_TO_VPS=false` for CI only; enable it after configuring both SSH credentials. `PUBLISH_IMAGES` and `REGISTRY_PREFIX` are removed. Old parameter definitions may remain visible until the new Jenkinsfile has run once.
+Parameters default to `DEPLOY_BRANCH=main`, `VPS_HOST=51.210.107.84`, `VPS_USER=hajer`, `VPS_PORT=2244`, and `VPS_DIRECTORY=/home/hajer/skillbridge`. Keep `DEPLOY_TO_VPS=false` for CI only; enable it after configuring `vps-ssh-key`. `PUBLISH_IMAGES` and `REGISTRY_PREFIX` are removed. Old parameter definitions may remain visible until the new Jenkinsfile has run once.
 
 ## 4. VPS setup
 
@@ -123,6 +122,6 @@ To migrate the existing local database, use PostgreSQL dump/restore as a separat
 
 ## Current activation requirements
 
-The registry-free pipeline is prepared in source. A successful CI run does not mean Jenkins has deployed to the VPS: both SSH credentials and `DEPLOY_TO_VPS=true` are required. The existing public SkillBridge instance was initially deployed manually.
+The registry-free pipeline is prepared in source. A successful CI run does not mean Jenkins has deployed to the VPS: `vps-ssh-key` and `DEPLOY_TO_VPS=true` are required. The existing public SkillBridge instance was initially deployed manually.
 
 Validation distinguishes local archive/image-ID/Compose checks from an actual Jenkins-to-VPS deployment. Isolated deployment scenarios cover success, rollback, backup failure, malformed releases, locking, corrupt archives, unavailable image IDs and import failure; these scenarios do not connect to a VPS.
