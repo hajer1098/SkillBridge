@@ -30,6 +30,7 @@ pipeline {
                     }
                 }
                 sh 'for script in SkillBridge-backend/scripts/*.sh SkillBridge-backend/tests/*.sh SkillBridge-backend/deploy/deploy-vps.sh; do bash -n "$script"; done'
+                sh 'bash SkillBridge-backend/tests/ci-image-tags.test.sh'
                 sh 'bash SkillBridge-backend/scripts/ci-docker.sh prepare'
             }
         }

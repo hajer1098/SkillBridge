@@ -69,7 +69,7 @@ The Jenkinsfile uses **`agent any`**. The selected agent needs Linux, Docker Eng
 
 The pipeline:
 
-1. Checks out the repository and creates a unique `skillbridge-ci-*` Compose project with a random temporary database password.
+1. Checks out the repository, verifies CI/publication image-name agreement, and creates a unique `skillbridge-ci-*` Compose project with a random temporary database password. CI commands force the local image prefix to that project name; the Jenkins `REGISTRY_PREFIX` parameter is used only for publication. This prevents an exported Jenkins parameter from overriding the CI environment file and changing the names that the publication script expects.
 2. Builds both application images. The backend image build runs Maven unit tests.
 3. Builds the two test images, starts an isolated PostgreSQL volume, runs the API suites and deployment-script scenarios, and verifies the frontend and API proxy in the `Integration et test` stage. Failures prevent publication and deployment.
 4. Publishes images only when `PUBLISH_IMAGES=true`, the branch matches `DEPLOY_BRANCH`, and the build is not a change request.

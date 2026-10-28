@@ -7,6 +7,9 @@ export DOCKER_BUILD_FILE=Dockerfile
 : "${IMAGE_TAG:?Set IMAGE_TAG to the commit/build identifier}"
 [[ $CI_PROJECT =~ ^skillbridge-ci-[a-z0-9-]+$ ]] || { echo 'Invalid CI project name.' >&2; exit 2; }
 [[ $IMAGE_TAG =~ ^[a-zA-Z0-9_.-]+$ ]] || { echo 'Invalid image tag.' >&2; exit 2; }
+# Jenkins exports REGISTRY_PREFIX as a build parameter. Shell variables override
+# --env-file values, so force the CI namespace expected by publish-images.sh.
+export REGISTRY_PREFIX="$CI_PROJECT"
 env_file="$root/SkillBridge-backend/.local/ci/$CI_PROJECT.env"
 compose=(docker compose -p "$CI_PROJECT" --env-file "$env_file" -f "$root/compose.yaml")
 
