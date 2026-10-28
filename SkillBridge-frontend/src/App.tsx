@@ -1839,6 +1839,10 @@ export default function App() {
           </>
         ) : adminTab === "Users" ? (
           <section className="panel">
+            <div className="section-heading">
+              <div><h2>Members</h2><p>Create accounts and manage access.</p></div>
+              <button className="primary" onClick={() => setModal({type:"createUser"})}><Plus size={16}/>Create account</button>
+            </div>
             <div className="field-search">
               <Search size={17} />
               <input
@@ -3409,7 +3413,7 @@ export default function App() {
                 </button>
               </form>
             )}
-            {["editUser", "editMentor", "resolveReport", "content", "editContent"].includes(modal.type) && (apiBase ? <AdminDialog key={`${modal.type}-${modal.id}`} modal={modal} content={adminContent} users={adminUsers} mentors={adminMentors} request={request} notify={notify} onSaved={() => {setAdminRefresh(n => n + 1); setCatalogRefresh(n => n + 1); setModal(null);}}/> : <div className="modal-content"><h2>Database connection required</h2><p>Start the API to manage real platform records.</p></div>)}
+            {["createUser", "editUser", "editMentor", "resolveReport", "content", "editContent"].includes(modal.type) && (apiBase ? <AdminDialog key={`${modal.type}-${modal.id}`} modal={modal} content={adminContent} users={adminUsers} mentors={adminMentors} request={request} notify={notify} onSaved={(createdUser) => {if (createdUser) {setQuery(createdUser.email); setUserPage(0);} setAdminRefresh(n => n + 1); setCatalogRefresh(n => n + 1); setModal(null);}}/> : <div className="modal-content"><h2>Database connection required</h2><p>Start the API to manage real platform records.</p></div>)}
             {modal.type === "about" && (
               <div className="modal-content">
                 <span className="eyebrow">BUILT FOR WHAT’S NEXT.</span>

@@ -49,6 +49,64 @@ test("Separate role access and database admin management", async t => {
     const user = await fresh("Boundary Learner");
     for (const path of ["users","mentors","applications","content","bookings","reports","audit"]) await api(`/admin/${path}`,undefined,user.token,403);
   });
+  await t.test("administrators create persistent accounts for all three roles without exposing passwords", async () => {
+    const initialPassword=`Initial!${crypto.randomBytes(16).toString("hex")} `;
+    for (const role of ["LEARNER","MENTOR","ADMIN"]) {
+      const email=`managed-${crypto.randomUUID()}@example.test`;
+      const name=`Managed ${role}`;
+      const created=await api("/admin/users",{name:`  ${name}  `,email:email.toUpperCase(),password:initialPassword,role},admin,201);
+      assert.equal(created.email,email);
+      assert.equal(created.name,name);
+      assert.equal(created.role,role);
+      assert.equal(created.enabled,true);
+      assert.equal(created.verified,true);
+      assert.equal("password" in created,false);
+      assert.equal("password_hash" in created,false);
+      const rows=await api(`/admin/users?q=${encodeURIComponent(email)}`,undefined,admin);
+      assert.equal(rows.length,1);
+      assert.equal(rows[0].id,created.id);
+      assert.equal("password_hash" in rows[0],false);
+      await api("/auth/login",{email,password:initialPassword.trim(),role},undefined,401);
+      const session=await api("/auth/login",{email,password:initialPassword,role});
+      try {
+        assert.equal((await api("/auth/session",undefined,session.token)).role,role);
+        const workspace=await api("/workspace",undefined,session.token);
+        assert.equal(workspace.name,name);
+        assert.equal(workspace.email,email);
+        if(role==="MENTOR") {
+          const profile=(await api("/admin/mentors",undefined,admin)).find(m=>m.user_id===created.id);
+          assert.ok(profile);
+          assert.equal(profile.approved,false);
+          assert.equal((await api("/catalog/mentors")).some(m=>m.id===profile.id),false);
+        }
+      } finally { await api("/auth/logout",{},session.token); }
+      await api("/admin/users",{name,email:email.toUpperCase(),password:initialPassword,role},admin,409);
+      const audit=await api("/admin/audit",undefined,admin);
+      const event=audit.find(e=>e.action==="user.create"&&String(e.target)===String(created.id));
+      assert.ok(event);
+      assert.equal(JSON.stringify(event).includes(initialPassword),false);
+      assert.equal(JSON.stringify(event).includes("password_hash"),false);
+    }
+  });
+  await t.test("account creation validates input and denies non-administrators", async () => {
+    const payload={name:"Managed Learner",email:`managed-${crypto.randomUUID()}@example.test`,password:"Managed!Password2026",role:"LEARNER"};
+    await api("/admin/users",payload,undefined,401);
+    for (const [email,role] of [["learner@skillbridge.local","LEARNER"],["mentor@skillbridge.local","MENTOR"]]) {
+      const session=await login(email,role);
+      try { await api("/admin/users",{...payload,role:"ADMIN"},session.token,403); }
+      finally { await api("/auth/logout",{},session.token); }
+    }
+    for (const invalid of [{name:"X"},{email:"invalid-email"},{password:"short"},{password:"😀".repeat(36)},{role:"OWNER"}]) {
+      await api("/admin/users",{...payload,...invalid},admin,400);
+    }
+    assert.equal((await api(`/admin/users?q=${encodeURIComponent(payload.email)}`,undefined,admin)).length,0);
+  });
+  await t.test("concurrent duplicate creation stores a single account", async () => {
+    const body={name:"Concurrent Learner",email:`concurrent-${crypto.randomUUID()}@example.test`,password:"Concurrent!Password2026",role:"LEARNER"};
+    const results=await Promise.all([1,2].map(()=>fetch(base+"/admin/users",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${admin}`},body:JSON.stringify(body)})));
+    assert.deepEqual(results.map(r=>r.status).sort(),[201,409]);
+    assert.equal((await api(`/admin/users?q=${encodeURIComponent(body.email)}`,undefined,admin)).length,1);
+  });
   await t.test("member edits persist and changing a role revokes active sessions", async () => {
     const user = await fresh("Editable Learner");
     const [record] = await api(`/admin/users?q=${encodeURIComponent(user.email)}`,undefined,admin);
@@ -103,7 +161,7 @@ test("Separate role access and database admin management", async t => {
   });
   await t.test("administrative changes appear in the audit log and logout revokes token", async () => {
     const audit=await api("/admin/audit",undefined,admin);
-    for (const action of ["user.update","mentor.review","mentor.update","content.create","content.update"]) assert.ok(audit.some(e=>e.action===action),action);
+    for (const action of ["user.create","user.update","mentor.review","mentor.update","content.create","content.update"]) assert.ok(audit.some(e=>e.action===action),action);
     await api("/auth/logout",{},admin);
     await api("/admin/users",undefined,admin,401);
   });

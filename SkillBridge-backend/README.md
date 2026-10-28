@@ -35,6 +35,10 @@ In pgAdmin, refresh **Schemas → public → Tables**. Accounts are in `app_user
 
 ## Development accounts
 
+Production accounts are created dynamically from **Admin → Users → Create account**. The administrator supplies a name, email, role (learner, mentor or admin), and initial password. The frontend calls `POST /api/admin/users`; the API validates the request, hashes the password with BCrypt, and stores the account and a separate workspace in PostgreSQL in one transaction. Only an authenticated administrator can use this endpoint. Responses, member lists and audit events never include passwords or password hashes. These accounts are active immediately and do not require SMTP verification because they are provisioned by an administrator. Mentor accounts receive a draft profile that must be completed and approved under **Mentors** before public listing.
+
+Existing logins read `app_user` and validate its saved password hash. Account creation, role changes and suspension persist across restarts. Public self-registration remains a learner-only flow with email verification; production SMTP requirements are unchanged. The bootstrap administrator is only the first account, not a replacement for database-driven account management.
+
 All six initially use **`SkillBridge!2026`**. These website credentials are separate from PostgreSQL credentials.
 
 | Workspace | Email |
@@ -57,7 +61,7 @@ $env:TEST_API_URL = 'http://127.0.0.1:8081/api'
 npm test
 ```
 
-The two suites contain 17 subtests (19 reported tests including their parent suites). They cover identity, authorization, separate role logins, logout, catalog data, admin edits, mentor approvals, bookings, test refunds, messaging privacy, portfolio validation, and audit activity.
+The two suites cover identity, authorization, separate role logins, logout, catalog data, dynamic account creation for all roles, input validation, duplicate creation races, admin edits, mentor approvals, bookings, test refunds, messaging privacy, portfolio validation, and audit activity.
 
 ## Optional Docker development stack
 

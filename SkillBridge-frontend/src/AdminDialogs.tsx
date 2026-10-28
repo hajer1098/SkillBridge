@@ -7,7 +7,7 @@ type Mentor = {id: number; name: string; expertise: string; bio: string; price: 
 type Props = {
   modal: {type: string; id?: number}; content: Content[]; users: User[]; mentors: Mentor[];
   request: (path: string, body?: unknown, method?: string) => Promise<any>;
-  onSaved: () => void; notify: (text: string) => void;
+  onSaved: (createdUser?: {email: string}) => void; notify: (text: string) => void;
 };
 export function AdminDialog({modal, content, users, mentors, request, onSaved, notify}: Props) {
   const record = content.find(c => c.id === modal.id);
@@ -15,6 +15,7 @@ export function AdminDialog({modal, content, users, mentors, request, onSaved, n
   const mentor = mentors.find(m => m.id === modal.id);
   const [kind, setKind] = useState(record?.kind || "Course");
   const [busy, setBusy] = useState(false);
+  const [accountRole, setAccountRole] = useState("LEARNER");
   const data = record?.data || {};
   const list = (value: unknown) => Array.isArray(value) ? value.join("\n") : String(value || "");
   async function save(event: React.FormEvent<HTMLFormElement>) {
@@ -24,7 +25,12 @@ export function AdminDialog({modal, content, users, mentors, request, onSaved, n
     const lines = (key: string) => value(key).split("\n").map(s => s.trim()).filter(Boolean);
     setBusy(true);
     try {
-      if (modal.type === "editUser" && user) {
+      let createdUser: {email: string} | undefined;
+      if (modal.type === "createUser") {
+        const password = String(form.get("password") || "");
+        if (password !== String(form.get("confirmPassword") || "")) throw new Error("The passwords do not match.");
+        createdUser = await request("/admin/users", {name:value("name"), email:value("email"), password, role:value("role")});
+      } else if (modal.type === "editUser" && user) {
         await request(`/admin/users/${user.id}`, {name:value("name"), role:value("role"), enabled:form.has("enabled")}, "PATCH");
       } else if (modal.type === "editMentor" && mentor) {
         await request(`/admin/mentors/${mentor.id}`, {name:value("name"), expertise:value("expertise"), bio:value("bio"), language:value("language"), price:Number(value("price")), approved:form.has("approved"), slots:lines("slots")}, "PATCH");
@@ -43,11 +49,22 @@ export function AdminDialog({modal, content, users, mentors, request, onSaved, n
         if (record) await request(`/admin/content/${record.id}`, {title, status:value("status"), data:next}, "PATCH");
         else await request("/admin/content", {type:kind, title, description, data:next});
       }
-      notify("Changes saved to the database.");
-      onSaved();
+      notify(createdUser ? "Account created. The user can now sign in." : "Changes saved to the database.");
+      onSaved(createdUser);
     } catch (error) { notify((error as Error).message); }
     finally { setBusy(false); }
   }
+  if (modal.type === "createUser") return <form className="modal-content stack-form" onSubmit={save}>
+    <span className="eyebrow">MEMBER MANAGEMENT</span><h2>Create account</h2>
+    <p>Create an active account with its own workspace. It can sign in immediately.</p>
+    <label>Full name<input name="name" required minLength={2} maxLength={80} autoComplete="name"/></label>
+    <label>Email address<input name="email" type="email" required maxLength={254} autoComplete="email"/></label>
+    <label>Role<select name="role" value={accountRole} onChange={e => setAccountRole(e.target.value)}><option value="LEARNER">Learner</option><option value="MENTOR">Mentor</option><option value="ADMIN">Administrator</option></select></label>
+    <label>Initial password<input name="password" type="password" required minLength={12} maxLength={72} autoComplete="new-password"/><small>Use 12–72 characters. Share it directly with the account owner.</small></label>
+    <label>Confirm password<input name="confirmPassword" type="password" required minLength={12} maxLength={72} autoComplete="new-password"/></label>
+    {accountRole === "MENTOR" && <p>A draft mentor profile will be created. Complete and approve it under Mentors before it appears in the public directory.</p>}
+    <button className="primary" disabled={busy}>{busy ? "Creating…" : "Create account"}</button>
+  </form>;
   if (modal.type === "editUser" && user) return <form className="modal-content stack-form" onSubmit={save}>
     <span className="eyebrow">MEMBER MANAGEMENT</span><h2>Edit member</h2><p>{user.email}</p>
     <label>Full name<input name="name" defaultValue={user.name} required minLength={2} maxLength={80}/></label>
