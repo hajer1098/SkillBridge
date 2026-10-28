@@ -2839,6 +2839,57 @@ td select {
 .modal-content.stack-form > button.primary {
   margin-top: 5px;
 }
+.registration-interests {
+  border: 0;
+  padding: 0;
+  margin: 0 0 20px;
+  min-width: 0;
+}
+.registration-interests legend {
+  font-size: 12px;
+  font-weight: 600;
+}
+.registration-interests > p {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 8px 0 12px;
+}
+.interest-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 3px;
+}
+.interest-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: #fffefa;
+  border-radius: 6px;
+  padding: 9px 11px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.interest-options input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--burgundy);
+}
+.interest-options label:has(input:checked) {
+  background: var(--rose);
+  border-color: var(--burgundy);
+  color: var(--burgundy);
+}
+.interest-options label:focus-within {
+  outline: 2px solid var(--burgundy);
+  outline-offset: 2px;
+}
 .modal-content.stack-form > p {
   margin-top: 0;
   margin-bottom: 25px;

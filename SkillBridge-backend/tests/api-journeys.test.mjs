@@ -45,6 +45,7 @@ test("SkillBridge journeys on PostgreSQL: identity, learning, approval, booking,
     });
     await api("/auth/verify", { token: r.developmentVerificationToken });
     learner = await login(email);
+    assert.deepEqual((await api("/workspace", undefined, learner)).interests, []);
   });
   await t.test(
     "registration, one-time verification, and profile recommendations",
@@ -54,6 +55,7 @@ test("SkillBridge journeys on PostgreSQL: identity, learning, approval, booking,
         name: "Journey Learner",
         email,
         password: "A-test-password!2026",
+        interests: ["Design", "Development", "Design"],
       });
       assert.ok(registration.developmentVerificationToken);
       await api(
@@ -72,6 +74,7 @@ test("SkillBridge journeys on PostgreSQL: identity, learning, approval, booking,
         400,
       );
       newUser = await login(email, "A-test-password!2026");
+      assert.deepEqual((await api("/workspace", undefined, newUser)).interests, ["Design", "Development"]);
       await api(
         "/workspace/profile",
         {
@@ -88,6 +91,16 @@ test("SkillBridge journeys on PostgreSQL: identity, learning, approval, booking,
       assert.equal(rec.mode, "rules-based");
       assert.equal(rec.items[0].id, 1);
       assert.ok(rec.items[0].explanation.includes("UX design"));
+    },
+  );
+  await t.test(
+    "registration rejects unavailable and invalid interests without creating an account",
+    async () => {
+      for (const interests of [["Unavailable topic"], [""], Array(21).fill("Design")]) {
+        const address = "invalid-interests-" + crypto.randomUUID() + "@example.test";
+        await api("/auth/register", {name: "Invalid Interests", email: address, password: "A-test-password!2026", interests}, undefined, 400);
+        assert.deepEqual(await api("/admin/users?q=" + encodeURIComponent(address), undefined, admin), []);
+      }
     },
   );
   await t.test(

@@ -719,7 +719,11 @@ export default function App() {
     setLoading(true);
     try {
       if (apiBase) {
-        const data = await request("/auth/" + authMode, {...Object.fromEntries(f), ...(authMode === "login" ? {role: authRole} : {})});
+        const data = await request("/auth/" + authMode, {
+          ...Object.fromEntries(f),
+          ...(authMode === "login" ? {role: authRole} : {}),
+          ...(authMode === "register" ? {interests: f.getAll("interests").map(String)} : {}),
+        });
         if (data.token) {
           sessionVersion.current++;
           sessionStorage.setItem("sb-token", data.token);
@@ -3064,7 +3068,7 @@ export default function App() {
                 </span>
                 <span className="eyebrow">{roleLabel(authRole)} access</span>
                 <h2>{authMode === "login" ? `${roleLabel(authRole)} login` : authMode === "register" ? "Create a learner account" : authMode === "verify" ? "Verify your email" : "Reset your password"}</h2>
-                <p>{authRole === "ADMIN" ? "Use your administrator account to manage the platform." : authRole === "MENTOR" ? "Use your approved mentor account." : "Sign in to your personal learning workspace."}</p>
+                <p>{authMode === "register" ? "Create your account and choose the topics you would like to explore." : authRole === "ADMIN" ? "Use your administrator account to manage the platform." : authRole === "MENTOR" ? "Use your approved mentor account." : "Sign in to your personal learning workspace."}</p>
                 {apiBase && <>
                 {authMode === "register" && (
                   <label>
@@ -3105,6 +3109,20 @@ export default function App() {
                       }
                     />
                   </label>
+                )}
+                {authMode === "register" && (
+                  <fieldset className="registration-interests" aria-describedby="registration-interests-help">
+                    <legend>Interested in</legend>
+                    <p id="registration-interests-help">Choose one or more topics (optional). You can update them in your profile.</p>
+                    {categories.length ? <div className="interest-options">
+                      {categories.map((topic) => (
+                        <label key={topic}>
+                          <input type="checkbox" name="interests" value={topic} />
+                          <span>{topic}</span>
+                        </label>
+                      ))}
+                    </div> : <p>No topics are available yet. You can choose your interests later.</p>}
+                  </fieldset>
                 )}
                 {authMode === "verify" && (
                   <label>
