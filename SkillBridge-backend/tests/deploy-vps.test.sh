@@ -11,6 +11,13 @@ cat > "$fixture/bin/docker" <<'MOCK'
 set -euo pipefail
 printf '%s\n' "$*" >> "$FAKE_DOCKER_LOG"
 case " $* " in
+  *' image inspect '*)
+    [[ ${FAIL_IMAGE_ID:-0} != 1 ]] || exit 1
+    printf '%s\n' "$3"
+    ;;
+  *' image load '*)
+    [[ ${FAIL_IMAGE_LOAD:-0} != 1 ]] || exit 1
+    ;;
   *' exec -T database '*)
     [[ ${FAIL_BACKUP:-0} != 1 ]] || exit 1
     printf 'test-backup\n'
@@ -36,7 +43,7 @@ make_case() {
   ln -s "$case_root/releases/old" "$case_root/current"
   FAKE_DOCKER_LOG="$case_root/docker.log"
   : > "$FAKE_DOCKER_LOG"
-  unset FAIL_RELEASE FAIL_BACKUP
+  unset FAIL_RELEASE FAIL_BACKUP FAIL_IMAGE_ID FAIL_IMAGE_LOAD
 }
 make_case success
 bash "$case_root/releases/new/deploy-vps.sh" "$case_root" > "$case_root/output" 2>&1
@@ -72,3 +79,46 @@ if bash "$case_root/releases/new/deploy-vps.sh" "$case_root" > "$case_root/outpu
 exec 9>&-
 [[ ! -s $FAKE_DOCKER_LOG ]]
 echo 'PASS: concurrent deployment is rejected.'
+
+make_offline_case() {
+  make_case "$1"
+  printf 'BACKEND_IMAGE=sha256:%064d\nFRONTEND_IMAGE=sha256:%064d\n' 1 2 > "$case_root/releases/new/images.env"
+  printf 'test-image-archive\n' > "$case_root/releases/new/images.tar.gz"
+  (cd "$case_root/releases/new" && sha256sum images.tar.gz > images.sha256)
+}
+make_offline_case offline_success
+bash "$case_root/releases/new/deploy-vps.sh" "$case_root" > "$case_root/output" 2>&1
+[[ $(readlink -f "$case_root/current") == "$case_root/releases/new" ]]
+grep -q 'image load --input' "$FAKE_DOCKER_LOG"
+if grep -q 'pull backend frontend' "$FAKE_DOCKER_LOG"; then exit 1; fi
+load_line=$(grep -n 'image load --input' "$FAKE_DOCKER_LOG" | cut -d: -f1)
+backup_line=$(grep -n 'exec -T database' "$FAKE_DOCKER_LOG" | cut -d: -f1)
+app_line=$(grep -n 'up .*backend frontend' "$FAKE_DOCKER_LOG" | cut -d: -f1)
+[[ $load_line -lt $backup_line && $backup_line -lt $app_line ]]
+echo 'PASS: SSH archive loads before backup and app replacement without registry access.'
+
+make_offline_case corrupt_archive
+printf 'corruption\n' >> "$case_root/releases/new/images.tar.gz"
+if bash "$case_root/releases/new/deploy-vps.sh" "$case_root" > "$case_root/output" 2>&1; then exit 1; fi
+if grep -Eq 'image load|exec -T database|up .*backend frontend' "$FAKE_DOCKER_LOG"; then exit 1; fi
+[[ $(readlink -f "$case_root/current") == "$case_root/releases/old" ]]
+echo 'PASS: checksum failure prevents image loading and app replacement.'
+
+make_offline_case offline_rollback
+export FAIL_RELEASE=1
+if bash "$case_root/releases/new/deploy-vps.sh" "$case_root" > "$case_root/output" 2>&1; then exit 1; fi
+[[ $(readlink -f "$case_root/current") == "$case_root/releases/old" ]]
+grep -q '/releases/old/compose.production.yaml.*up -d.*backend frontend' "$FAKE_DOCKER_LOG"
+echo 'PASS: failed SSH deployment attempts rollback to previous images.'
+
+make_offline_case wrong_image
+export FAIL_IMAGE_ID=1
+if bash "$case_root/releases/new/deploy-vps.sh" "$case_root" > "$case_root/output" 2>&1; then exit 1; fi
+if grep -Eq 'exec -T database|up .*backend frontend' "$FAKE_DOCKER_LOG"; then exit 1; fi
+echo 'PASS: unavailable immutable image IDs prevent database and app changes.'
+
+make_offline_case load_failure
+export FAIL_IMAGE_LOAD=1
+if bash "$case_root/releases/new/deploy-vps.sh" "$case_root" > "$case_root/output" 2>&1; then exit 1; fi
+if grep -Eq 'exec -T database|up .*backend frontend' "$FAKE_DOCKER_LOG"; then exit 1; fi
+echo 'PASS: image import failure prevents database and app changes.'

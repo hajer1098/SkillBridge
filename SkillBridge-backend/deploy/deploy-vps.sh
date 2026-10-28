@@ -10,8 +10,19 @@ release_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 [[ $release_dir == "$deploy_root/releases/"* ]] || { echo 'Run the script from a release inside the deployment directory.' >&2; exit 2; }
 [[ -f $release_dir/images.env && -f $release_dir/compose.production.yaml ]] || exit 2
 [[ $(wc -l < "$release_dir/images.env") -eq 2 ]] || exit 2
+offline=0
+if [[ -f $release_dir/images.tar.gz || -f $release_dir/images.sha256 ]]; then
+  offline=1
+  [[ -s $release_dir/images.tar.gz && -s $release_dir/images.sha256 ]] || { echo 'Incomplete image archive.' >&2; exit 2; }
+  [[ $(wc -l < "$release_dir/images.sha256") -eq 1 ]] && grep -Eq '^[a-f0-9]{64}  images.tar.gz$' "$release_dir/images.sha256" || { echo 'Invalid archive checksum manifest.' >&2; exit 2; }
+fi
 for service in BACKEND FRONTEND; do
-  [[ $(grep -Ec "^${service}_IMAGE=[a-z0-9./:_-]+@sha256:[a-f0-9]{64}$" "$release_dir/images.env") -eq 1 ]] || { echo 'Release image references must use registry digests.' >&2; exit 2; }
+  if [[ $offline == 1 ]]; then
+    pattern="^${service}_IMAGE=sha256:[a-f0-9]{64}$"
+  else
+    pattern="^${service}_IMAGE=[a-z0-9./:_-]+@sha256:[a-f0-9]{64}$"
+  fi
+  [[ $(grep -Ec "$pattern" "$release_dir/images.env") -eq 1 ]] || { echo 'Release images must use immutable image IDs or registry digests.' >&2; exit 2; }
 done
 exec 9>"$deploy_root/.deploy.lock"
 flock -n 9 || { echo 'Another deployment is in progress.' >&2; exit 1; }
@@ -34,12 +45,20 @@ on_failure() {
 }
 trap on_failure ERR
 "${compose[@]}" config --quiet
-# A database image upgrade is a separate maintenance action; pull only app images here.
-"${compose[@]}" pull backend frontend
+if [[ $offline == 1 ]]; then
+  (cd -- "$release_dir" && sha256sum -c images.sha256)
+  docker image load --input "$release_dir/images.tar.gz"
+  while IFS='=' read -r key image; do
+    [[ $(docker image inspect "$image" --format '{{.Id}}') == "$image" ]] || { echo "Transferred image ID mismatch: $key" >&2; false; }
+  done < "$release_dir/images.env"
+else
+  # Compatibility for older registry-based releases; new Jenkins releases use SSH.
+  "${compose[@]}" pull backend frontend
+fi
 "${compose[@]}" up -d --no-build --wait --wait-timeout 180 database
 mkdir -p "$deploy_root/backups"
 backup="$deploy_root/backups/$(date -u +%Y%m%dT%H%M%SZ)-$(basename -- "$release_dir").dump"
-"${compose[@]}" exec -T database sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup.partial"
+"${compose[@]}" exec -T database sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' </dev/null > "$backup.partial"
 mv -- "$backup.partial" "$backup"
 echo 'Database backup completed.'
 release_started=1

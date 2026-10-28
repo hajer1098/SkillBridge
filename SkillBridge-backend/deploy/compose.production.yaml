@@ -4,6 +4,11 @@ services:
   database:
     image: ${POSTGRES_IMAGE:-postgres:17-alpine}
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.75
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
     environment:
       POSTGRES_DB: ${DOCKER_DATABASE_NAME:-skillbridge}
       POSTGRES_USER: ${DOCKER_DATABASE_USER:-skillbridge}
@@ -21,6 +26,11 @@ services:
   backend:
     image: ${BACKEND_IMAGE:?The release images.env must define BACKEND_IMAGE}
     restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
     environment:
       PORT: "8080"
       DATABASE_URL: jdbc:postgresql://database:5432/${DOCKER_DATABASE_NAME:-skillbridge}
@@ -55,6 +65,11 @@ services:
   frontend:
     image: ${FRONTEND_IMAGE:?The release images.env must define FRONTEND_IMAGE}
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-8088}:8080"
     depends_on:

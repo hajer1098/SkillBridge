@@ -3,8 +3,8 @@
 Keep `SkillBridge-backend` and `SkillBridge-frontend` in **one GitHub repository**. They produce separate Docker images and are deployed together with PostgreSQL. The root `Jenkinsfile` is the pipeline entry point.
 
 ```text
-GitHub push → Jenkins checkout → build app images → integration and proxy tests
-            → publish frontend + backend to GHCR → SSH release to VPS → backup + health checks
+Checkout → Build Docker images → Tests → Transfer to VPS → Deploy with Compose
+                                        SSH archive       runs on the VPS
 ```
 
 ## 1. Build and run locally with Docker
@@ -53,10 +53,10 @@ Stop the local stack with `docker compose --env-file .env.docker down`; the data
 
 ## 2. GitHub repository
 
-Create one repository and push the project root, including the two app folders, `compose.yaml`, and `Jenkinsfile`. The local repository currently has no GitHub remote configured. Once your repository exists:
+The repository is https://github.com/hajer1098/SkillBridge. Keep both application folders, `compose.yaml`, and `Jenkinsfile` there. Commit and push from the local Windows checkout, not from the VPS release directory:
 
 ```sh
-git remote add origin https://github.com/YOUR_ACCOUNT/SkillBridge.git
+git push origin main
 ```
 
 Review and commit the source changes, then push your chosen branch. Configure `DEPLOY_BRANCH` in Jenkins to match that actual branch. Local `.env` files, Docker settings, build output, database dumps, and old exported artifacts are ignored. Do not add credentials or private keys to Git.
@@ -65,39 +65,38 @@ Review and commit the source changes, then push your chosen branch. Configure `D
 
 Use a Jenkins **Multibranch Pipeline** connected to the GitHub repository. Use GitHub Branch Source and an authenticated GitHub webhook to trigger branch builds. Configure `Jenkinsfile` as the script path. Only trusted repository branches should be eligible for credentials; do not run untrusted fork Jenkinsfiles on a credential-bearing Docker agent. See [Jenkins Pipeline documentation](https://www.jenkins.io/doc/book/pipeline/) and [Pipeline syntax](https://www.jenkins.io/doc/book/pipeline/syntax/).
 
-The Jenkinsfile uses **`agent any`**. The selected agent needs Linux, Docker Engine with Compose supporting `up --wait`, Git, Bash, OpenSSH, OpenSSL, and permission to use its Docker daemon. Maven, Java, Node, and Nginx for application builds run inside their Docker build stages. Required Jenkins plugins include Pipeline, Git, GitHub Branch Source, Credentials Binding, and SSH Agent.
+The Jenkinsfile uses **`agent any`**. The selected agent needs Linux, Docker Engine with Compose supporting `up --wait`, Git, Bash, OpenSSH, OpenSSL, gzip, sha256sum, and permission to use its Docker daemon. Maven, Java, Node, and Nginx for application builds run inside their Docker build stages. Required Jenkins plugins include Pipeline, Git, GitHub Branch Source, Credentials Binding, and SSH Credentials. The key is bound to a temporary file and passed to OpenSSH directly; the SSH Agent plugin is not required.
 
 The pipeline:
 
-1. Checks out the repository, verifies CI/publication image-name agreement, and creates a unique `skillbridge-ci-*` Compose project with a random temporary database password. CI commands force the local image prefix to that project name; the Jenkins `REGISTRY_PREFIX` parameter is used only for publication. This prevents an exported Jenkins parameter from overriding the CI environment file and changing the names that the publication script expects.
-2. Builds both application images. The backend image build runs Maven unit tests.
-3. Builds the two test images, starts an isolated PostgreSQL volume, runs the API suites and deployment-script scenarios, and verifies the frontend and API proxy in the `Integration et test` stage. Failures prevent publication and deployment.
-4. Publishes images only when `PUBLISH_IMAGES=true`, the branch matches `DEPLOY_BRANCH`, and the build is not a change request.
-5. Records the registry image digests in `images.env` and archives the release files.
-6. Deploys over SSH only when `DEPLOY_TO_VPS=true` and the same branch conditions pass. Production backup and health checks remain part of deployment.
-7. Cleans up only that build's temporary CI resources.
+1. **Checkout**: fetch source, validate scripts and image-transfer contracts, and prepare a unique `skillbridge-ci-*` environment. Local image names are forced to that project prefix.
+2. **Build Docker images**: build frontend and backend; Maven runs backend unit tests.
+3. **Tests**: start temporary PostgreSQL, run the API suites, deployment-script scenarios, frontend and proxy checks. Failures stop transfer and deployment.
+4. **Transfer to VPS**: export the two tested application images using `docker image save`, compress them, record a SHA-256 checksum and immutable image IDs, and copy the archive and release scripts over SSH/SCP.
+5. **Deploy with Compose**: on the VPS, verify the checksum, import images with `docker image load`, verify both image IDs, ensure PostgreSQL is healthy, back up the database, update the apps, and check health. Advance `current` only on success.
 
-Publishing and deployment default to disabled because repository, registry, and VPS connection details must be supplied first. No Jenkins deployment approval step is required once these are configured and enabled.
+**No GHCR, registry login, publishing token, or Docker Hub account is required.** Public base images and package dependencies still need to be available to the build agent. PostgreSQL uses its official image; application images arrive directly through SSH. The old registry scripts remain available for older workflows but are not called by this Jenkinsfile.
 
-The `test` command builds the two targets in `SkillBridge-backend/Dockerfile.tests` before running them. Test sources are copied into these images, with a dedicated ignore file that excludes local secrets and build artifacts. The test containers do not bind-mount the workspace: when Jenkins itself runs in Docker and uses the host Docker socket, its workspace path can differ from the path on the Docker host. Only the frontend and backend images are published; the test images stay on the build agent.
+Transfer and deployment are enabled only when `DEPLOY_TO_VPS=true`, the branch matches `DEPLOY_BRANCH`, and the build is not a pull request. Temporary CI resources and the local compressed image archive are cleaned in post actions. Jenkins archives only small release metadata files. No global Jenkins settings need changing.
+
+The `test` command builds the two targets in `SkillBridge-backend/Dockerfile.tests` before running them. Test sources are copied into these images, with a dedicated ignore file that excludes local secrets and build artifacts. The test containers do not bind-mount the workspace: when Jenkins itself runs in Docker and uses the host Docker socket, its workspace path can differ from the path on the Docker host. Only the frontend and backend images are transferred; the test images stay on the build agent.
 
 Create these Jenkins credentials:
 
 | Credential ID | Kind | Purpose |
 | --- | --- | --- |
-| `registry-credentials` | Username/password | Registry username and publishing token. For GHCR, use a classic PAT with `write:packages` and the necessary repository/package permissions. |
 | `vps-ssh-key` | SSH username with private key | SSH key authorized for your VPS deployment user. |
 | `vps-known-hosts` | Secret file | The VPS host public key verified through the VPS provider or console, in OpenSSH known_hosts format. |
 
-GHCR uses `ghcr.io`; set `REGISTRY_PREFIX` to a lowercase value such as `ghcr.io/your-account/skillbridge`. The VPS needs separate pull access to private packages. The Jenkins and VPS tokens do not belong in image layers or release artifacts. See [GitHub's Container Registry authentication documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+Scope both SSH credentials to SkillBridge. Use username `hajer` and the dedicated unencrypted deployment key for `vps-ssh-key`, and the verified entry for `[51.210.107.84]:2244` in `vps-known-hosts`. Keys and production secrets are never archived. A credential used by GitHub Branch Source to scan the code repository is separate and may remain configured.
 
-Set Jenkins parameters for your actual branch, `REGISTRY_PREFIX`, `VPS_HOST`, `VPS_USER`, `VPS_PORT`, and `VPS_DIRECTORY`. Initially enable publishing alone, verify the images in the registry, then enable VPS deployment after the following server setup.
+Parameters default to `DEPLOY_BRANCH=main`, `VPS_HOST=51.210.107.84`, `VPS_USER=hajer`, `VPS_PORT=2244`, and `VPS_DIRECTORY=/home/hajer/skillbridge`. Keep `DEPLOY_TO_VPS=false` for CI only; enable it after configuring both SSH credentials. `PUBLISH_IMAGES` and `REGISTRY_PREFIX` are removed. Old parameter definitions may remain visible until the new Jenkinsfile has run once.
 
 ## 4. VPS setup
 
 The deployment scripts target a Linux VPS with Docker Engine, Docker Compose v2, Bash, OpenSSH, and `flock`. The SSH deployment user must be able to use Docker and own the application directory. These files do not install or replace software on a server automatically.
 
-Prepare `/opt/skillbridge` for that user, create `/opt/skillbridge/.env.production` from `SkillBridge-backend/deploy/.env.production.example`, and give that file mode `600`. Set:
+Use the existing `/home/hajer/skillbridge` directory and `.env.production` there, with mode `600`. Do not overwrite existing credentials. On a fresh server, create that file from `SkillBridge-backend/deploy/.env.production.example`. Set:
 
 - A unique PostgreSQL password; retain it for the lifetime of that database volume.
 - `PUBLIC_ORIGIN` to the actual HTTPS website origin.
@@ -106,24 +105,24 @@ Prepare `/opt/skillbridge` for that user, create `/opt/skillbridge/.env.producti
 
 The bootstrap creates a verified admin with a BCrypt password hash only when that email does not exist. It does not reset existing credentials, promote an existing learner, or reset a workspace on restart. After initial provisioning, both bootstrap email and password can be removed together from the server environment.
 
-Authenticate the VPS deployment user to GHCR using a separate token with `read:packages` if the images are private. Registry authentication is done once on the VPS with `docker login ghcr.io --username YOUR_ACCOUNT --password-stdin` and token input through stdin.
+The VPS user needs Docker permissions and ownership of the application directory. Deployment uses no sudo and needs no registry authentication. Bash, `flock`, and `sha256sum` must be installed.
 
-The production frontend binds only `127.0.0.1:8088`. Set up a host reverse proxy for HTTPS; `SkillBridge-backend/deploy/Caddyfile.example` shows the route. Replace its domain, point DNS to the VPS, and allow inbound 80/443. Database and backend ports do not need public firewall rules.
+The production frontend binds only `127.0.0.1:8088`. The existing separate SkillBridge HTTPS proxy exposes `https://51.210.107.84:8443`; keep that value in `PUBLIC_ORIGIN`. The current private test certificate still causes a browser trust warning. Application releases do not change the proxy or the company's services on ports 80/443. Database and backend ports stay internal. Production resource/log limits preserve the caps used in the initial VPS deployment.
 
 ## 5. Releases, backups, and recovery
 
-Jenkins uploads only the production Compose file, deployment script, image digest references, and release identifier to `/opt/skillbridge/releases/<commit-build>/`. Production credentials stay in `/opt/skillbridge/.env.production`.
+Jenkins uploads six release files to `/home/hajer/skillbridge/releases/<commit-build>/`: `images.tar.gz`, `images.sha256`, `images.env`, `release.txt`, `compose.production.yaml`, and `deploy-vps.sh`. The archive contains only frontend/backend images. Production credentials and PostgreSQL data stay on the VPS and are never included.
 
-The server script obtains a deployment lock, pulls the exact app image digests, ensures PostgreSQL is healthy, and writes a custom-format `pg_dump` backup under `/opt/skillbridge/backups/` **before** new application migrations run. It then updates the apps, checks their health and proxy, and changes the `current` symlink only on success. Application updates can briefly interrupt requests; this is not a zero-downtime deployment strategy.
+The server script takes a deployment lock, verifies the archive checksum, imports the images, and checks both immutable `sha256:` image IDs. It ensures PostgreSQL is healthy and writes a custom-format `pg_dump` under `/home/hajer/skillbridge/backups/` **before** starting new app containers and their Flyway migrations. It checks the frontend, admin route and API proxy, and changes `current` only on success. Compose replaces containers as needed; separate stop/remove stages are unnecessary. Updates can briefly interrupt requests. Older registry-digest releases remain supported for recovery.
 
 If a deployment fails after app replacement, the script attempts to start the previous application images and returns failure to Jenkins. **Database migrations are not automatically reversed.** Backward-incompatible schema changes require a reviewed recovery plan; image rollback alone may not recover them. Database restoration is an operator action using the saved dump, because restoring it would discard newer writes.
 
-Backups remain on the VPS. Configure off-server backup storage and retention for your deployment; the pipeline does not delete old backups or existing production volumes.
+Archives, imported images and backups remain on the VPS. Configure retention and off-server backup storage separately. The pipeline does not prune other applications or delete the production volume.
 
 To migrate the existing local database, use PostgreSQL dump/restore as a separate planned step before the first live deployment. The pipeline deliberately does not read or upload your local pgAdmin database.
 
 ## Current activation requirements
 
-The Docker build and pipeline source can be prepared and tested locally. Activating remote publication/deployment still requires the GitHub repository URL and branch, a configured Jenkins agent and credentials, registry permissions, the VPS SSH endpoint, and an HTTPS domain/reverse proxy. None of those external resources are created by committing the Docker files.
+The registry-free pipeline is prepared in source. A successful CI run does not mean Jenkins has deployed to the VPS: both SSH credentials and `DEPLOY_TO_VPS=true` are required. The existing public SkillBridge instance was initially deployed manually.
 
-Validation distinguishes local runtime-image/Compose tests from remote pipeline activation: Jenkins registry publication and SSH deployment cannot be exercised until those external settings are supplied. The deployment script also has five isolated fake-Docker scenarios covering success, app rollback, backup failure, malformed releases, and concurrent deployment locking; those scenarios do not connect to a VPS.
+Validation distinguishes local archive/image-ID/Compose checks from an actual Jenkins-to-VPS deployment. Isolated deployment scenarios cover success, rollback, backup failure, malformed releases, locking, corrupt archives, unavailable image IDs and import failure; these scenarios do not connect to a VPS.
