@@ -3,7 +3,7 @@
 Keep `SkillBridge-backend` and `SkillBridge-frontend` in **one GitHub repository**. They produce separate Docker images and are deployed together with PostgreSQL. The root `Jenkinsfile` is the pipeline entry point.
 
 ```text
-GitHub push → Jenkins checkout → build app images → isolated database/API/proxy tests
+GitHub push → Jenkins checkout → build app images → integration and proxy tests
             → publish frontend + backend to GHCR → SSH release to VPS → backup + health checks
 ```
 
@@ -65,19 +65,21 @@ Review and commit the source changes, then push your chosen branch. Configure `D
 
 Use a Jenkins **Multibranch Pipeline** connected to the GitHub repository. Use GitHub Branch Source and an authenticated GitHub webhook to trigger branch builds. Configure `Jenkinsfile` as the script path. Only trusted repository branches should be eligible for credentials; do not run untrusted fork Jenkinsfiles on a credential-bearing Docker agent. See [Jenkins Pipeline documentation](https://www.jenkins.io/doc/book/pipeline/) and [Pipeline syntax](https://www.jenkins.io/doc/book/pipeline/syntax/).
 
-The Linux agent needs label **`docker`**, Docker Engine with Compose v2 supporting `up --wait`, Git, Bash, OpenSSH, OpenSSL, and permission to use its Docker daemon. Maven, Java, Node, and Nginx for application builds run inside their Docker build stages. Required Jenkins plugins include Pipeline, Git, GitHub Branch Source, Credentials Binding, and SSH Agent.
+The Jenkinsfile uses **`agent any`**. The selected agent needs Linux, Docker Engine with Compose supporting `up --wait`, Git, Bash, OpenSSH, OpenSSL, and permission to use its Docker daemon. Maven, Java, Node, and Nginx for application builds run inside their Docker build stages. Required Jenkins plugins include Pipeline, Git, GitHub Branch Source, Credentials Binding, and SSH Agent.
 
 The pipeline:
 
 1. Checks out the repository and creates a unique `skillbridge-ci-*` Compose project with a random temporary database password.
-2. Builds both images. The backend image build runs Maven unit tests.
-3. Starts an isolated PostgreSQL volume, runs both real API suites, and checks the frontend and its API proxy.
+2. Builds both application images. The backend image build runs Maven unit tests.
+3. Builds the two test images, starts an isolated PostgreSQL volume, runs the API suites and deployment-script scenarios, and verifies the frontend and API proxy in the `Integration et test` stage. Failures prevent publication and deployment.
 4. Publishes images only when `PUBLISH_IMAGES=true`, the branch matches `DEPLOY_BRANCH`, and the build is not a change request.
 5. Records the registry image digests in `images.env` and archives the release files.
-6. Deploys over SSH only when `DEPLOY_TO_VPS=true` and the same branch conditions pass.
-7. Cleans up only that build's temporary CI containers and database volume.
+6. Deploys over SSH only when `DEPLOY_TO_VPS=true` and the same branch conditions pass. Production backup and health checks remain part of deployment.
+7. Cleans up only that build's temporary CI resources.
 
 Publishing and deployment default to disabled because repository, registry, and VPS connection details must be supplied first. No Jenkins deployment approval step is required once these are configured and enabled.
+
+The `test` command builds the two targets in `SkillBridge-backend/Dockerfile.tests` before running them. Test sources are copied into these images, with a dedicated ignore file that excludes local secrets and build artifacts. The test containers do not bind-mount the workspace: when Jenkins itself runs in Docker and uses the host Docker socket, its workspace path can differ from the path on the Docker host. Only the frontend and backend images are published; the test images stay on the build agent.
 
 Create these Jenkins credentials:
 

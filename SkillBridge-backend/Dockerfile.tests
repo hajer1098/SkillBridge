@@ -1,0 +1,13 @@
+# Copy test sources into images: Jenkins workspaces may live inside a container
+# and have a different path on the Docker daemon's host.
+FROM node:22-alpine AS api-tests
+WORKDIR /tests
+COPY tests/*.test.mjs ./
+CMD ["node", "--test", "--test-concurrency=1", "api-journeys.test.mjs", "access-admin.test.mjs"]
+
+FROM postgres:17-alpine AS deploy-tests
+WORKDIR /workspace
+COPY deploy/deploy-vps.sh deploy/compose.production.yaml ./deploy/
+COPY tests/deploy-vps.test.sh ./tests/
+ENTRYPOINT ["/bin/bash"]
+CMD ["/workspace/tests/deploy-vps.test.sh"]

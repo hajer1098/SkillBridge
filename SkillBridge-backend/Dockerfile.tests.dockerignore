@@ -1,0 +1,10 @@
+# Dedicated, minimal context; never send local secrets or deployment keys.
+**
+!Dockerfile.tests
+!Dockerfile.tests.dockerignore
+!tests/
+!tests/*.test.mjs
+!tests/deploy-vps.test.sh
+!deploy/
+!deploy/deploy-vps.sh
+!deploy/compose.production.yaml

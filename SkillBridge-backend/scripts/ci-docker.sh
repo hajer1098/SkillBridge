@@ -23,14 +23,13 @@ case ${1:-} in
     "${compose[@]}" build --pull backend frontend
     ;;
   test)
+    "${compose[@]}" --profile test build --pull tests deploy-tests
     "${compose[@]}" up -d --no-build --wait --wait-timeout 240 database backend frontend
     "${compose[@]}" run --rm tests
     "${compose[@]}" exec -T frontend wget -q -O /dev/null http://127.0.0.1:8080/
     "${compose[@]}" exec -T frontend wget -q -O /dev/null http://127.0.0.1:8080/admin
     "${compose[@]}" exec -T frontend wget -q -O - http://127.0.0.1:8080/api/health
-    docker run --rm --network none --read-only --tmpfs /tmp \
-      --mount "type=bind,source=$root/SkillBridge-backend,target=/workspace,readonly" \
-      --entrypoint /bin/bash postgres:17-alpine /workspace/tests/deploy-vps.test.sh
+    "${compose[@]}" run --rm deploy-tests
     ;;
   cleanup)
     # This file is generated only for a uniquely named, isolated CI stack.

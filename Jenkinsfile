@@ -36,7 +36,7 @@ pipeline {
         stage('Build Docker images') {
             steps { sh 'bash SkillBridge-backend/scripts/ci-docker.sh build' }
         }
-        stage('Integration and proxy tests') {
+        stage('Integration et test') {
             steps { sh 'bash SkillBridge-backend/scripts/ci-docker.sh test' }
         }
         stage('Publish tested images') {

@@ -69,18 +69,30 @@ services:
     security_opt: [no-new-privileges:true]
 
   tests:
-    image: node:22-alpine
+    image: ${REGISTRY_PREFIX:-skillbridge}/tests:${IMAGE_TAG:-local}
+    build:
+      context: ./SkillBridge-backend
+      dockerfile: Dockerfile.tests
+      target: api-tests
     profiles: [test]
     working_dir: /tests
     environment:
       TEST_API_URL: http://backend:8080/api
-    volumes:
-      - ./SkillBridge-backend/tests:/tests:ro
-    command: [node, --test, --test-concurrency=1, api-journeys.test.mjs, access-admin.test.mjs]
     depends_on:
       backend:
         condition: service_healthy
     networks: [app]
+
+  deploy-tests:
+    image: ${REGISTRY_PREFIX:-skillbridge}/deploy-tests:${IMAGE_TAG:-local}
+    build:
+      context: ./SkillBridge-backend
+      dockerfile: Dockerfile.tests
+      target: deploy-tests
+    profiles: [test]
+    network_mode: none
+    read_only: true
+    tmpfs: [/tmp]
 
 networks:
   app:
